@@ -1,31 +1,45 @@
 // pages/api/chat.js
-import axios from 'axios';
+import { NextApiRequest, NextApiResponse } from 'next';
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).end("Method Not Allowed");
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method Not Allowed' });
+  }
 
-  const { message } = req.body;
+  const { messages } = req.body;
+  if (!messages) {
+    return res.status(400).json({ error: 'Missing messages in request body' });
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ error: 'API key not configured' });
+  }
 
   try {
-    const response = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: "gpt-3.5-turbo",
-        messages: [{ role: "user", content: message }],
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
       },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        },
-      }
-    );
+      body: JSON.stringify({
+        model: 'gpt-3.5-turbo',
+        messages,
+        stream: false
+      })
+    });
 
-    const aiMessage = response.data.choices[0].message.content;
-    res.status(200).json({ reply: aiMessage });
+    if (!response.ok) {
+      const errRes = await response.json();
+      return res.status(response.status).json({ error: errRes });
+    }
 
-  } catch (error) {
-    console.error(error.response?.data || error.message);
-    res.status(500).json({ error: "Failed to connect to AI service" });
+    const json = await response.json();
+    const reply = json.choices?.[0]?.message;
+    return res.status(200).json({ reply });
+  } catch (err) {
+    console.error('Error calling OpenAI:', err);
+    return res.status(500).json({ error: 'OpenAI request failed' });
   }
 }
